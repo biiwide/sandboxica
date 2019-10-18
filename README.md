@@ -7,8 +7,8 @@ Don't play in the jungle.
 Require some namespaces:
 ```
 (require '[biiwide.sandboxica.alpha :as sandbox]
-	       '[amazonica.aws.ec2 :as ec2]
-	       '[amazonica.aws.sqs :as sqs])
+         '[amazonica.aws.ec2 :as ec2]
+         '[amazonica.aws.sqs :as sqs])
 ```
 
 Intercept **all** Amazonica / AWS operations, and throw an exception:
