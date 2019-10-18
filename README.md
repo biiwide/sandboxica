@@ -4,6 +4,11 @@ Don't play in the jungle.
 
 ## Usage
 
+Leiningen coordinates:
+```
+[biiwide/sandboxica "0.1.0"]
+```
+
 Require some namespaces:
 ```
 (require '[biiwide.sandboxica.alpha :as sandbox]
