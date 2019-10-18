@@ -2,7 +2,9 @@
   (:refer-clojure :exclude [methods])
   (:require [amazonica.core :as aws]
             [clojure.string :as string])
-  (:import  [com.amazonaws.client AwsSyncClientParams]
+  (:import  [com.amazonaws ClientConfiguration]
+            [com.amazonaws.auth AWSCredentialsProvider]
+            [com.amazonaws.client AwsSyncClientParams]
             [java.lang.reflect Method Modifier]
             [java.util.concurrent CopyOnWriteArrayList]
             [net.sf.cglib.proxy Callback CallbackFilter
@@ -30,10 +32,18 @@ Example:
          ~@body))))
 
 
+(defn- client-configuration
+  [client-config]
+  (if (instance? ClientConfiguration client-config)
+    client-config
+    (#'aws/get-client-configuration
+      (or client-config {}))))
+
+
 (defn- ^AwsSyncClientParams aws-sync-client-params
   [credentials configuration]
   (let [aws-creds  (aws/get-credentials credentials)
-        aws-config (#'aws/get-client-configuration configuration)
+        aws-config (client-configuration configuration)
         metrics    (com.amazonaws.metrics.RequestMetricCollector/NONE)]
     (proxy [AwsSyncClientParams] []
       (getCredentialsProvider [] aws-creds)
@@ -49,6 +59,42 @@ Example:
   (Modifier/isPublic (.getModifiers m)))
 
 
+(defn- find-constructor
+  [clazz arg-types]
+  (or (try
+        (.getConstructor clazz (into-array Class arg-types))
+        (catch NoSuchMethodException e nil))
+      (try
+        (.getDeclaredConstructor clazz (into-array Class arg-types))
+        (catch NoSuchMethodException e nil))))
+
+
+(definline ^:private has-constructor?
+  [arg-types clazz]
+  `(some? (find-constructor ~clazz ~arg-types)))
+
+
+(defn- typed-client-constructor-args
+  [client-class aws-creds aws-config]
+  (let [creds-provider (aws/get-credentials aws-creds)
+        client-config  (client-configuration aws-config)]
+    (partition 2
+      (condp has-constructor? client-class
+        [AwsSyncClientParams]
+        [AwsSyncClientParams (aws-sync-client-params aws-creds aws-config)]
+
+        [AWSCredentialsProvider ClientConfiguration]
+        [AWSCredentialsProvider creds-provider
+         ClientConfiguration    client-config]
+
+        [AWSCredentialsProvider]
+        [AWSCredentialsProvider creds-provider]
+
+        []
+        []
+        ))))
+
+
 (def ^:private ignored-client-methods
   #{"getClientConfiguration"
     "getEndpointPrefix"
@@ -58,22 +104,25 @@ Example:
 
 (defn- client-proxy
   [client-class ^Callback method-invocation-handler]
-  (.create (doto (Enhancer.)
-             (.setSuperclass client-class)
-             (.setCallbacks (into-array Callback
-                                        [NoOp/INSTANCE
-                                         method-invocation-handler]))
-             (.setCallbackFilter (reify CallbackFilter
-                                   (accept [_ method]
-                                     (cond (not (public? method))                          0
-                                           (not= client-class (.getDeclaringClass method)) 0
-                                           (ignored-client-methods (.getName method))      0
-                                           :else 1)))))
-    (into-array Class [AwsSyncClientParams])
-    (into-array Object [(aws-sync-client-params {:access-key ""
-                                                 :secret-key ""
-                                                 :endpoint   "http://localhost:1/"}
-                                                {})])))
+  (let [typed-args (typed-client-constructor-args
+                     client-class
+                     {:access-key ""
+                      :secret-key ""
+                      :endpoint   "http://localhost:1/"}
+                     {})]
+    (.create (doto (Enhancer.)
+               (.setSuperclass client-class)
+               (.setCallbacks (into-array Callback
+                                          [NoOp/INSTANCE
+                                           method-invocation-handler]))
+               (.setCallbackFilter (reify CallbackFilter
+                                     (accept [_ method]
+                                       (cond (not (public? method))                          0
+                                             (not= client-class (.getDeclaringClass method)) 0
+                                             (ignored-client-methods (.getName method))      0
+                                             :else 1)))))
+      (into-array Class (map first typed-args))
+      (into-array Object (map second typed-args)))))
 
 
 (defn- require-ns
@@ -314,5 +363,4 @@ Example:
       :encryption-client-fn (fn [~'_] (constantly nil))
       :transfer-manager-fn  (fn [~'_] (constantly nil))}
      (fn [] ~@body)))
-
 

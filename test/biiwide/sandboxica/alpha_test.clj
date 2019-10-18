@@ -5,8 +5,11 @@
             [clojure.test :refer :all])
   (:import  [com.amazonaws.client AwsSyncClientParams]
             [com.amazonaws.services.ec2 AmazonEC2Client]
+            [com.amazonaws.services.ec2.model
+             DescribeInstancesRequest DescribeInstancesResult]
             [com.amazonaws.services.sqs AmazonSQSClient]
-            [com.amazonaws.services.kinesis AmazonKinesisClient]
+            [com.amazonaws.services.sqs.model
+             DeleteMessageResult SendMessageRequest SendMessageResult]
             [java.lang.reflect Method Modifier]
             [net.sf.cglib.proxy Callback CallbackFilter
              Enhancer InvocationHandler]))
@@ -52,10 +55,18 @@
               (is (= service-name (.getServiceName proxy)))
               ))
 
-       com.amazonaws.services.ec2.AmazonEC2Client         "ec2"     "ec2"
-       ;com.amazonaws.services.s3.AmazonS3Client           "s3"      "s3"
-       com.amazonaws.services.sqs.AmazonSQSClient         "sqs"     "sqs"
-       com.amazonaws.services.kinesis.AmazonKinesisClient "kinesis" "kinesis"
+       com.amazonaws.services.apigateway.AmazonApiGatewayClient "apigateway" "apigateway"
+       com.amazonaws.services.athena.AmazonAthenaClient         "athena"     "athena"
+       com.amazonaws.services.config.AmazonConfigClient         "config"     "config"
+       com.amazonaws.services.ec2.AmazonEC2Client               "ec2"        "ec2"
+       com.amazonaws.services.ecs.AmazonECSClient               "ecs"        "ecs"
+       com.amazonaws.services.glacier.AmazonGlacierClient       "glacier"    "glacier"
+       com.amazonaws.services.kafka.AWSKafkaClient              "kafka"      "kafka"
+       com.amazonaws.services.kinesis.AmazonKinesisClient       "kinesis"    "kinesis"
+       com.amazonaws.services.s3.AmazonS3Client                 "s3"         "s3"
+       com.amazonaws.services.sns.AmazonSNSClient               "sns"        "sns"
+       com.amazonaws.services.sqs.AmazonSQSClient               "sqs"        "sqs"
+       com.amazonaws.services.transfer.AWSTransferClient        "transfer"   "transfer"
        ))
 
 
@@ -83,8 +94,8 @@
   (are [clazz val]
        (instance? clazz (#'sandbox/unmarshall clazz val))
 
-       com.amazonaws.services.ec2.model.DescribeInstancesResult {}
-       com.amazonaws.services.sqs.model.SendMessageResult       {}
+       DescribeInstancesResult {}
+       SendMessageResult       {}
        ))
 
 
@@ -93,17 +104,13 @@
        (let [result (apply (#'sandbox/coerce-method-implementation f method) args)]
          (is expectation))
 
-       (instance? com.amazonaws.services.ec2.model.DescribeInstancesResult result)
-       (method com.amazonaws.services.ec2.AmazonEC2Client
-               "describeInstances"
-               com.amazonaws.services.ec2.model.DescribeInstancesRequest)
+       (instance? DescribeInstancesResult result)
+       (method AmazonEC2Client "describeInstances" DescribeInstancesRequest)
        (constantly {:abc "def"})
        [{}]
 
        (= "abcdefg" (.getMessageId result))
-       (method com.amazonaws.services.sqs.AmazonSQSClient
-               "sendMessage"
-               com.amazonaws.services.sqs.model.SendMessageRequest)
+       (method AmazonSQSClient "sendMessage" SendMessageRequest)
        (fn [req]
          (is (= "foobar" (:message-body req)))
          (is (= "000"    (:message-deduplication-id req)))
@@ -112,9 +119,7 @@
          :message-deduplication-id "000"}]
 
        (= "xyz" (.getMessageId result))
-       (method com.amazonaws.services.sqs.AmazonSQSClient
-               "sendMessage"
-               com.amazonaws.services.sqs.model.SendMessageRequest)
+       (method AmazonSQSClient "sendMessage" SendMessageRequest)
        (fn [req]
          (is (= "foobar" (:message-body req)))
          (is (= "000"    (:message-deduplication-id req)))
@@ -122,10 +127,8 @@
        [{:message-body "foobar"
          :message-deduplication-id "000"}]
 
-       (instance? com.amazonaws.services.sqs.model.DeleteMessageResult result)
-       (method com.amazonaws.services.sqs.AmazonSQSClient
-               "deleteMessage"
-               String String)
+       (instance? DeleteMessageResult result)
+       (method AmazonSQSClient "deleteMessage" String String)
        (fn [url message-id]
          (is (= "queue-url" url))
          (is (= "54321" message-id))
