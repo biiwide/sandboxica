@@ -1,5 +1,6 @@
 (ns biiwide.sandboxica.alpha-test
   (:require [amazonica.aws.ec2 :as ec2]
+            [amazonica.aws.s3transfer :as s3transfer]
             [amazonica.aws.sqs :as sqs]
             [biiwide.sandboxica.alpha :as sandbox]
             [clojure.test :refer :all])
@@ -7,6 +8,7 @@
             [com.amazonaws.services.ec2 AmazonEC2Client]
             [com.amazonaws.services.ec2.model
              DescribeInstancesRequest DescribeInstancesResult]
+            [com.amazonaws.services.s3.transfer Upload]
             [com.amazonaws.services.sqs AmazonSQSClient]
             [com.amazonaws.services.sqs.model
              DeleteMessageResult SendMessageRequest SendMessageResult]
@@ -96,6 +98,7 @@
 
        DescribeInstancesResult {}
        SendMessageResult       {}
+       Upload                  (reify Upload)
        ))
 
 
@@ -159,3 +162,16 @@
                 (map :reservation-id))))
     (is (nil? (sqs/delete-message "a" "b"))))
   )
+
+
+(deftest test-with-transfer-manager
+  (sandbox/with
+    sandbox/always-nothing
+    (is (nil? (s3transfer/upload "" "" (java.io.File. "abc")))))
+
+  (sandbox/with
+    (sandbox/just
+      (s3transfer/upload [& args] (reify Upload)))
+    (is (s3transfer/upload "" "" (java.io.File. "abc"))))
+  )
+

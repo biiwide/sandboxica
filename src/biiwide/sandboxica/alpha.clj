@@ -125,6 +125,24 @@ Example:
       (into-array Object (map second typed-args)))))
 
 
+(defn- client-proxy?
+  [x]
+  (if (class? x)
+    (some? (some #{net.sf.cglib.proxy.Factory}
+                 (ancestors x)))
+    (instance? net.sf.cglib.proxy.Factory x)))
+
+
+(defn- original-class
+  [x]
+  (cond (nil? x) nil
+        (class? x)
+        (if (client-proxy? x)
+          (recur (.getSuperclass ^Class x))
+          x)
+        :else (recur (class x))))
+
+
 (defn- require-ns
   [ns-sym]
   (let [ns-sym (symbol ns-sym)]
@@ -134,10 +152,12 @@ Example:
 
 (defn- unmarshall
   [^Class clazz result]
-  (first (#'aws/unmarshall
-           {:actual  [clazz]
-            :generic [clazz]}
-           [result])))
+  (if (instance? clazz result)
+    result
+    (first (#'aws/unmarshall
+             {:actual  [clazz]
+              :generic [clazz]}
+             [result]))))
 
 
 (defn coerce-method-implementation
@@ -243,11 +263,11 @@ Example:
   [implementations]
   (let [impls (resolve-client-methods implementations)]
     (fn [client-fn]
-      (fn [class credentials config]
-        (let [client (client-fn class credentials config)]
-          (if-some [methods (get impls class)]
-            (client-proxy
-              class
+      (fn [& client-fn-args]
+        (let [client (apply client-fn client-fn-args)
+              clazz  (original-class client)]
+          (if-some [methods (get impls clazz)]
+            (client-proxy clazz
               (invocation-handler [method args]
                 (if-some [m (get methods (.getName method))]
                   (apply m (seq args))
@@ -311,15 +331,16 @@ always return a \"nothing\" value for every client action.
 Typically the \"nothing\" value is nil, but will also return:
   false, 0, and NaN for methods with primitive return types."
   [client-fn]
-  (fn [class credentials config]
-    (client-proxy class
-      (invocation-handler [method args]
-        (nothing-value (.getReturnType ^Method method))))))
+  (fn [& client-fn-args]
+    (let [c (apply client-fn client-fn-args)]
+      (client-proxy (original-class c)
+        (invocation-handler [method args]
+          (nothing-value (.getReturnType ^Method method)))))))
 
 
 (defn- class-name
-  [^Class class]
-  (.getName class))
+  [^Class clazz]
+  (.getName clazz))
 
 
 (defn- method-description
@@ -338,12 +359,13 @@ method name, and parameter types for a method."
   "This client-fn middleware builds clients that always throw
 an UnsupportedOperationException for every client action."
   [client-fn]
-  (fn [class credentials config]
-    (client-proxy class
-      (invocation-handler [method args]
-        (throw (UnsupportedOperationException.
-                 (format "Method %s is not supported in this context."
-                         (method-description method))))))))
+  (fn [& client-fn-args]
+    (let [c (apply client-fn client-fn-args)]
+      (client-proxy (original-class c)
+        (invocation-handler [method args]
+          (throw (UnsupportedOperationException.
+                   (format "Method %s is not supported in this context."
+                           (method-description method)))))))))
 
 
 (defmacro with
@@ -358,9 +380,10 @@ Example:
   (amazonica.aws.ec2/run-instances {:image-id \"foo\" ...}))
 "
   [client-middleware & body]
-  `(with-client-middleware*
-     {:amazon-client-fn     ~client-middleware
-      :encryption-client-fn (fn [~'_] (constantly nil))
-      :transfer-manager-fn  (fn [~'_] (constantly nil))}
-     (fn [] ~@body)))
+  `(let [mw# ~client-middleware]
+     (with-client-middleware*
+       {:amazon-client-fn     mw#
+        :encryption-client-fn mw#
+        :transfer-manager-fn  mw#}
+       (fn [] ~@body))))
 
