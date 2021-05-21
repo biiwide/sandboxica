@@ -10,13 +10,13 @@
   :scm {:name "git"
         :url  "https://github.com/biiwide/sandboxica"}
 
-  :lein-release {:deploy-via :clojars}
+  :plugins [[lein-ancient "0.7.0"]]
 
   :dependencies [[org.clojure/clojure "1.8.0" :scope "provided"]
-                 [amazonica "0.3.142" :scope "provided"]
-                 [cglib "3.2.12"]]
+                 [amazonica "0.3.156" :scope "provided"]
+                 [cglib "3.3.0"]]
 
-  :profiles {:dev {:dependencies [[amazonica "0.3.142"]]}}
+  :lein-release {:deploy-via :clojars}
 
   :release-tasks [["vcs" "assert-committed"]
                   ["change" "version" "leiningen.release/bump-version" "release"]
