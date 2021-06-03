@@ -1,9 +1,10 @@
 (ns biiwide.sandboxica.alpha-test
   (:require [amazonica.aws.ec2 :as ec2]
-            [amazonica.aws.s3]
+            [amazonica.aws.s3 :as s3]
             [amazonica.aws.s3transfer :as s3transfer]
             [amazonica.aws.sqs :as sqs]
             [biiwide.sandboxica.alpha :as sandbox]
+            [clojure.java.io :as io]
             [clojure.test :refer [are deftest is]]
             [matcher-combinators.test])
   (:import  [com.amazonaws.client AwsSyncClientParams]
@@ -215,3 +216,19 @@
      :storage-class "REDUCED_REDUNDANCY"
      :metadata {:content-type "text/random"}}
     ))
+
+(deftest test-s3-put-object
+  ;; s3/put-object has unique behavior as described in this issue report:
+  ;; https://github.com/biiwide/sandboxica/issues/1
+  (let [content "Hello"
+        put-req {:bucket-name  "mybucket"
+                 :key          "something.txt"
+                 :input-stream (io/input-stream (.getBytes content))
+                 :metadata     {:content-type   "text/plain"
+                                :content-length (count content)
+                                :user-metadata  {:abc "def"}}}]
+  (sandbox/with (sandbox/just
+                 (s3/put-object [req]
+                   (is (match? (assoc put-req :input-stream content)
+                               (update req :input-stream slurp)))))
+    (s3/put-object {:profile "none"} put-req))))
