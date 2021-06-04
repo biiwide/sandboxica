@@ -1,4 +1,4 @@
-(defproject biiwide/sandboxica "0.2.2-SNAPSHOT"
+(defproject biiwide/sandboxica "0.3.0-SNAPSHOT"
 
   :description "Avoid the Jungle"
 
@@ -27,7 +27,7 @@
                   ["file-replace" "README.md" "\\[biiwide/sandboxica \"" "\"]" "version"]
                   ["vcs" "commit"]
                   ["vcs" "tag" "--no-sign"]
-                  ["deploy"]
+                  ["deploy" "clojars"]
                   ["change" "version" "leiningen.release/bump-version"]
                   ["vcs" "commit"]
                   ["vcs" "push"]]
