@@ -10,7 +10,8 @@
   :scm {:name "git"
         :url  "https://github.com/biiwide/sandboxica"}
 
-  :plugins [[lein-ancient "0.7.0"]]
+  :plugins [[lein-ancient "0.7.0"]
+            [lein-file-replace "0.1.0"]]
 
   :dependencies [[org.clojure/clojure "1.9.0" :scope "provided"]
                  [amazonica "0.3.156" :scope "provided"]
@@ -23,6 +24,7 @@
 
   :release-tasks [["vcs" "assert-committed"]
                   ["change" "version" "leiningen.release/bump-version" "release"]
+                  ["file-replace" "README.md" "\\[biiwide/sandboxica \"" "\"]" "version"]
                   ["vcs" "commit"]
                   ["vcs" "tag" "--no-sign"]
                   ["deploy"]
