@@ -1,4 +1,4 @@
-(defproject biiwide/sandboxica "0.3.0"
+(defproject biiwide/sandboxica "0.3.1-SNAPSHOT"
 
   :description "Avoid the Jungle"
 
