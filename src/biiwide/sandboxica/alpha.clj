@@ -159,6 +159,57 @@ Example:
               :generic [clazz]}
              [result]))))
 
+(def ^:private aws-package? @#'aws/aws-package?)
+(def ^:private camel->keyword @#'aws/camel->keyword)
+(def ^:private prop->name @#'aws/prop->name)
+
+(defn- aws-class-lineage
+  [^Class clazz]
+  (lazy-seq
+    (when (and (instance? Class clazz)
+               (aws-package? clazz)
+               (not= "com.amazonaws.AmazonWebServiceRequest"
+                    (.getName  clazz)))
+      (cons clazz (aws-class-lineage (.getSuperclass clazz))))))
+
+(declare marshall++)
+
+(defn get-deep-fields
+  "Returns a map of all non-null values returned by invoking all
+  public getters on the specified object.  The functionality is
+  similar to amazonica.core/get-fields but also performs a limitted
+  search of the object's parent classes.
+
+  This function can be used to implement the amazonica.core/IMarshall
+  protocol for classes that are not well supported, such as
+  com.amazonaws.services.s3.model.PutObjectRequest."
+  [obj]
+  (let [no-arg (make-array Object 0)]
+    (into {}
+          (mapcat (fn [^Class clazz]
+                    (for [^Method m (aws/accessors clazz true)]
+                      (let [r (marshall++ (.invoke m obj no-arg))]
+                        (if-not (nil? r)
+                          (hash-map
+                            (camel->keyword (prop->name m))
+                            r)))))
+                  (aws-class-lineage (class obj))))))
+
+(defn- needs-better-marshalling?
+  [x]
+  (cond (nil? x)   false
+        (class? x) (boolean
+                     (and (not (extends? aws/IMarshall x))
+                          (next (aws-class-lineage x))))
+        :else      (recur (class x))))
+
+(defn marshall++
+  "Like amazonica.core/marshall but improves handling of
+  some edge cases."
+  [x]
+  (if (needs-better-marshalling? (class x))
+    (get-deep-fields x)
+    (aws/marshall x)))
 
 (defn coerce-method-implementation
   "Returns a wrapped function that will marshall arguments to Clojure values,
@@ -168,14 +219,13 @@ and unmarshall Clojure values to a result type based on the given method signatu
     (fn ([]
           (unmarshall rt (f)))
         ([a]
-          (unmarshall rt (f (aws/marshall a))))
+          (unmarshall rt (f (marshall++ a))))
         ([a b]
-          (unmarshall rt (f (aws/marshall a)
-                            (aws/marshall b))))
+          (unmarshall rt (f (marshall++ a)
+                            (marshall++ b))))
         ([a b & more]
-          (unmarshall rt (apply f (mapv aws/marshall
+          (unmarshall rt (apply f (mapv marshall++
                                         (list* a b more))))))))
-
 
 (defn method-coercions
   "Given a function and a collection of methods,
@@ -386,4 +436,3 @@ Example:
         :encryption-client-fn mw#
         :transfer-manager-fn  mw#}
        (fn [] ~@body))))
-

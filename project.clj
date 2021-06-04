@@ -12,11 +12,14 @@
 
   :plugins [[lein-ancient "0.7.0"]]
 
-  :dependencies [[org.clojure/clojure "1.8.0" :scope "provided"]
+  :dependencies [[org.clojure/clojure "1.9.0" :scope "provided"]
                  [amazonica "0.3.156" :scope "provided"]
                  [cglib "3.3.0"]]
 
   :lein-release {:deploy-via :clojars}
+
+  :profiles {:dev {:dependencies [[com.amazonaws/aws-java-sdk-s3 "1.11.993"]
+                                  [nubank/matcher-combinators "1.0.0"]]}}
 
   :release-tasks [["vcs" "assert-committed"]
                   ["change" "version" "leiningen.release/bump-version" "release"]

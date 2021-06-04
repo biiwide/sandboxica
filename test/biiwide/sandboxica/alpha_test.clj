@@ -1,9 +1,12 @@
 (ns biiwide.sandboxica.alpha-test
   (:require [amazonica.aws.ec2 :as ec2]
+            [amazonica.aws.s3 :as s3]
             [amazonica.aws.s3transfer :as s3transfer]
             [amazonica.aws.sqs :as sqs]
             [biiwide.sandboxica.alpha :as sandbox]
-            [clojure.test :refer :all])
+            [clojure.java.io :as io]
+            [clojure.test :refer [are deftest is]]
+            [matcher-combinators.test])
   (:import  [com.amazonaws.client AwsSyncClientParams]
             [com.amazonaws.services.ec2 AmazonEC2Client]
             [com.amazonaws.services.ec2.model
@@ -175,3 +178,57 @@
     (is (s3transfer/upload "" "" (java.io.File. "abc"))))
   )
 
+
+(deftest test-aws-class-lineage
+  (are [clazz expected]
+    (= expected (#'sandbox/aws-class-lineage clazz))
+
+    com.amazonaws.services.s3.model.GetObjectAclRequest
+    [com.amazonaws.services.s3.model.GetObjectAclRequest]
+
+    com.amazonaws.services.s3.model.PutObjectRequest
+    [com.amazonaws.services.s3.model.PutObjectRequest
+     com.amazonaws.services.s3.model.AbstractPutObjectRequest]
+    ))
+
+
+(deftest test-needs-better-marshalling?
+  (are [p? clazz]
+    (p? (#'sandbox/needs-better-marshalling? clazz))
+
+    false? nil
+    false? String
+    false? Long
+    false? com.amazonaws.services.s3.model.ObjectMetadata
+    false? com.amazonaws.services.s3.model.GetObjectAclRequest
+    true?  com.amazonaws.services.s3.model.PutObjectRequest
+    ))
+
+
+(deftest test-get-deep-fields
+  (are [clazz value]
+    (match? value (sandbox/get-deep-fields
+                    (#'sandbox/unmarshall clazz value)))
+
+    com.amazonaws.services.s3.model.PutObjectRequest
+    {:bucket-name "foo.bar"
+     :key "abcdefg"
+     :storage-class "REDUCED_REDUNDANCY"
+     :metadata {:content-type "text/random"}}
+    ))
+
+(deftest test-s3-put-object
+  ;; s3/put-object has unique behavior as described in this issue report:
+  ;; https://github.com/biiwide/sandboxica/issues/1
+  (let [content "Hello"
+        put-req {:bucket-name  "mybucket"
+                 :key          "something.txt"
+                 :input-stream (io/input-stream (.getBytes content))
+                 :metadata     {:content-type   "text/plain"
+                                :content-length (count content)
+                                :user-metadata  {:abc "def"}}}]
+  (sandbox/with (sandbox/just
+                 (s3/put-object [req]
+                   (is (match? (assoc put-req :input-stream content)
+                               (update req :input-stream slurp)))))
+    (s3/put-object {:profile "none"} put-req))))
