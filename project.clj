@@ -16,7 +16,7 @@
   :dependencies [[org.clojure/clojure "1.9.0" :scope "provided"]
                  [amazonica "0.3.156" :scope "provided"]
                  [cglib "3.3.0"]
-                 [javassist/javassist "3.12.1.GA"]]
+                 [org.javassist/javassist "3.28.0-GA"]]
 
   :lein-release {:deploy-via :clojars}
 

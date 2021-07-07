@@ -7,7 +7,8 @@
             [com.amazonaws.client AwsSyncClientParams]
             [java.lang.reflect Method Modifier]
             [java.util.concurrent CopyOnWriteArrayList]
-            [javassist.util.proxy MethodHandler ProxyFactory]
+            [javassist.util.proxy MethodFilter MethodHandler
+             ProxyObject ProxyFactory]
             [net.sf.cglib.proxy Callback CallbackFilter
              Enhancer InvocationHandler NoOp]))
 
@@ -30,6 +31,29 @@ Example:
     `(reify net.sf.cglib.proxy.InvocationHandler
        (invoke [~'_ ~'_ ~(tag method-sym 'java.lang.reflect.Method)
                         ~(tag args-sym (array-hint Object))]
+         ~@body))))
+
+
+(defmacro javassist-invocation-handler
+  "A macro that constructs an invocation handler for use by client proxies.
+Invocations handlers are functions of 2 arguments: a method, and an arguments array.
+
+Example:
+(let [client (create-client class)]
+  (javassist-invocation-handler [^Method method args]
+    (println (.getName method) \\: (seq args))
+    (.invoke method client args)))
+"
+  [[method-sym args-sym] & body]
+  (letfn [(tag [sym type]
+            (vary-meta sym assoc :tag type))
+          (array-hint [clazz]
+            (symbol (.getName (class (into-array clazz [])))))]
+    `(reify javassist.util.proxy.MethodHandler
+       (invoke [~'_ ~'_
+                ~(tag method-sym 'java.lang.reflect.Method)
+                ~(tag '_ 'java.lang.reflect.Method)
+                ~(tag args-sym (array-hint Object))]
          ~@body))))
 
 
@@ -61,7 +85,7 @@ Example:
 
 
 (defn- find-constructor
-  [clazz arg-types]
+  [^Class clazz arg-types]
   (or (try
         (.getConstructor clazz (into-array Class arg-types))
         (catch NoSuchMethodException e nil))
@@ -104,7 +128,7 @@ Example:
 
 
 (defn- cglib-client-proxy
-  [client-class ^Callback cglib-method-invocation-handler]
+  [client-class ^Callback method-invocation-handler]
   (let [typed-args (typed-client-constructor-args
                      client-class
                      {:access-key ""
@@ -115,7 +139,7 @@ Example:
                (.setSuperclass client-class)
                (.setCallbacks (into-array Callback
                                           [NoOp/INSTANCE
-                                           cglib-method-invocation-handler]))
+                                           method-invocation-handler]))
                (.setCallbackFilter (reify CallbackFilter
                                      (accept [_ method]
                                        (cond (not (public? method))                          0
@@ -126,12 +150,37 @@ Example:
       (into-array Object (map second typed-args)))))
 
 
+(defn- javassist-client-proxy
+  [client-class method-invocation-handler]
+  (let [typed-args (typed-client-constructor-args
+                     client-class
+                     {:access-key ""
+                      :secret-key ""
+                      :endpoint   "http://localhost:1/"}
+                     {})
+        proxy-factory (doto (ProxyFactory.)
+                        (.setSuperclass client-class)
+                        (.setFilter (reify MethodFilter
+                                      (isHandled [_ method]
+                                        (cond (not (public? method))                          false
+                                              (not= client-class (.getDeclaringClass method)) false
+                                              (ignored-client-methods (.getName method))      false
+                                              :else true)))))
+        proxy-client (.create proxy-factory
+                       (into-array Class (map first typed-args))
+                       (into-array Object (map second typed-args)))]
+    (doto ^ProxyObject proxy-client
+      (.setHandler method-invocation-handler))))
+
+
 (defn- client-proxy?
   [x]
   (if (class? x)
-    (some? (some #{net.sf.cglib.proxy.Factory}
+    (some? (some #{net.sf.cglib.proxy.Factory
+                   javassist.util.proxy.ProxyObject}
                  (ancestors x)))
-    (instance? net.sf.cglib.proxy.Factory x)))
+    (or (instance? net.sf.cglib.proxy.Factory x)
+        (instance? javassist.util.proxy.ProxyObject x))))
 
 
 (defn- original-class
@@ -318,8 +367,8 @@ Example:
         (let [client (apply client-fn client-fn-args)
               clazz  (original-class client)]
           (if-some [methods (get impls clazz)]
-            (cglib-client-proxy clazz
-              (cglib-invocation-handler [method args]
+            (javassist-client-proxy clazz
+              (javassist-invocation-handler [method args]
                 (if-some [m (get methods (.getName method))]
                   (apply m (seq args))
                   (.invoke method client args))))
@@ -384,8 +433,8 @@ Typically the \"nothing\" value is nil, but will also return:
   [client-fn]
   (fn [& client-fn-args]
     (let [c (apply client-fn client-fn-args)]
-      (cglib-client-proxy (original-class c)
-        (cglib-invocation-handler [method args]
+      (javassist-client-proxy (original-class c)
+        (javassist-invocation-handler [method args]
           (nothing-value (.getReturnType ^Method method)))))))
 
 
@@ -412,8 +461,8 @@ an UnsupportedOperationException for every client action."
   [client-fn]
   (fn [& client-fn-args]
     (let [c (apply client-fn client-fn-args)]
-      (cglib-client-proxy (original-class c)
-        (cglib-invocation-handler [method args]
+      (javassist-client-proxy (original-class c)
+        (javassist-invocation-handler [method args]
           (throw (UnsupportedOperationException.
                    (format "Method %s is not supported in this context."
                            (method-description method)))))))))
