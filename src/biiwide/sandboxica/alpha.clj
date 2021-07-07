@@ -8,39 +8,16 @@
             [java.lang.reflect Method Modifier]
             [java.util.concurrent CopyOnWriteArrayList]
             [javassist.util.proxy MethodFilter MethodHandler
-             ProxyObject ProxyFactory]
-            [net.sf.cglib.proxy Callback CallbackFilter
-             Enhancer InvocationHandler NoOp]))
+             ProxyObject ProxyFactory]))
 
 
-(defmacro cglib-invocation-handler
+(defmacro invocation-handler
   "A macro that constructs an invocation handler for use by client proxies.
 Invocations handlers are functions of 2 arguments: a method, and an arguments array.
 
 Example:
 (let [client (create-client class)]
-  (cglib-invocation-handler [^Method method args]
-    (println (.getName method) \\: (seq args))
-    (.invoke method client args)))
-"
-  [[method-sym args-sym] & body]
-  (letfn [(tag [sym type]
-            (vary-meta sym assoc :tag type))
-          (array-hint [clazz]
-            (symbol (.getName (class (into-array clazz [])))))]
-    `(reify net.sf.cglib.proxy.InvocationHandler
-       (invoke [~'_ ~'_ ~(tag method-sym 'java.lang.reflect.Method)
-                        ~(tag args-sym (array-hint Object))]
-         ~@body))))
-
-
-(defmacro javassist-invocation-handler
-  "A macro that constructs an invocation handler for use by client proxies.
-Invocations handlers are functions of 2 arguments: a method, and an arguments array.
-
-Example:
-(let [client (create-client class)]
-  (javassist-invocation-handler [^Method method args]
+  (invocation-handler [^Method method args]
     (println (.getName method) \\: (seq args))
     (.invoke method client args)))
 "
@@ -127,30 +104,7 @@ Example:
     "setEndpoint"})
 
 
-(defn- cglib-client-proxy
-  [client-class ^Callback method-invocation-handler]
-  (let [typed-args (typed-client-constructor-args
-                     client-class
-                     {:access-key ""
-                      :secret-key ""
-                      :endpoint   "http://localhost:1/"}
-                     {})]
-    (.create (doto (Enhancer.)
-               (.setSuperclass client-class)
-               (.setCallbacks (into-array Callback
-                                          [NoOp/INSTANCE
-                                           method-invocation-handler]))
-               (.setCallbackFilter (reify CallbackFilter
-                                     (accept [_ method]
-                                       (cond (not (public? method))                          0
-                                             (not= client-class (.getDeclaringClass method)) 0
-                                             (ignored-client-methods (.getName method))      0
-                                             :else 1)))))
-      (into-array Class (map first typed-args))
-      (into-array Object (map second typed-args)))))
-
-
-(defn- javassist-client-proxy
+(defn- client-proxy
   [client-class method-invocation-handler]
   (let [typed-args (typed-client-constructor-args
                      client-class
@@ -176,11 +130,9 @@ Example:
 (defn- client-proxy?
   [x]
   (if (class? x)
-    (some? (some #{net.sf.cglib.proxy.Factory
-                   javassist.util.proxy.ProxyObject}
+    (some? (some #{javassist.util.proxy.ProxyObject}
                  (ancestors x)))
-    (or (instance? net.sf.cglib.proxy.Factory x)
-        (instance? javassist.util.proxy.ProxyObject x))))
+    (instance? javassist.util.proxy.ProxyObject x)))
 
 
 (defn- original-class
@@ -367,8 +319,8 @@ Example:
         (let [client (apply client-fn client-fn-args)
               clazz  (original-class client)]
           (if-some [methods (get impls clazz)]
-            (javassist-client-proxy clazz
-              (javassist-invocation-handler [method args]
+            (client-proxy clazz
+              (invocation-handler [method args]
                 (if-some [m (get methods (.getName method))]
                   (apply m (seq args))
                   (.invoke method client args))))
@@ -433,8 +385,8 @@ Typically the \"nothing\" value is nil, but will also return:
   [client-fn]
   (fn [& client-fn-args]
     (let [c (apply client-fn client-fn-args)]
-      (javassist-client-proxy (original-class c)
-        (javassist-invocation-handler [method args]
+      (client-proxy (original-class c)
+        (invocation-handler [method args]
           (nothing-value (.getReturnType ^Method method)))))))
 
 
@@ -461,8 +413,8 @@ an UnsupportedOperationException for every client action."
   [client-fn]
   (fn [& client-fn-args]
     (let [c (apply client-fn client-fn-args)]
-      (javassist-client-proxy (original-class c)
-        (javassist-invocation-handler [method args]
+      (client-proxy (original-class c)
+        (invocation-handler [method args]
           (throw (UnsupportedOperationException.
                    (format "Method %s is not supported in this context."
                            (method-description method)))))))))

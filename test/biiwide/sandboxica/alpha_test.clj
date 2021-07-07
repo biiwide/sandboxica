@@ -16,26 +16,15 @@
             [com.amazonaws.services.sqs.model
              DeleteMessageResult SendMessageRequest SendMessageResult]
             [java.lang.reflect Method Modifier]
-            [javassist.util.proxy MethodHandler]
-            [net.sf.cglib.proxy Callback CallbackFilter
-             Enhancer InvocationHandler]))
+            [javassist.util.proxy MethodHandler]))
 
 
-(deftest test-cglib-invocation-handler
-  (is (instance?
-        InvocationHandler
-        (sandbox/cglib-invocation-handler [_ _] nil)))
-  (let [o (Object.)]
-    (is (identical? o (.invoke (sandbox/cglib-invocation-handler [_ _] o)
-                               nil nil nil)))))
-
-
-(deftest test-javassist-invocation-handler
+(deftest test-invocation-handler
   (is (instance?
         MethodHandler
-        (sandbox/javassist-invocation-handler [_ _] nil)))
+        (sandbox/invocation-handler [_ _] nil)))
   (let [o (Object.)]
-    (is (identical? o (.invoke (sandbox/javassist-invocation-handler [_ _] o)
+    (is (identical? o (.invoke (sandbox/invocation-handler [_ _] o)
                                nil nil nil nil)))))
 
 
@@ -60,35 +49,10 @@
          (is (= "def" (.getAWSSecretKey creds))))))
 
 
-(deftest test-cglib-client-proxy
+(deftest test-client-proxy
   (are [client-class endpoint-prefix service-name]
-       (let [proxy (#'sandbox/cglib-client-proxy client-class
-                     (sandbox/cglib-invocation-handler [_ _]
-                       (throw (RuntimeException. "BOOM!"))))]
-         (and (is (instance? client-class proxy))
-              (is (= endpoint-prefix (.getEndpointPrefix proxy)))
-              (is (= service-name (.getServiceName proxy)))
-              ))
-
-       com.amazonaws.services.apigateway.AmazonApiGatewayClient "apigateway" "apigateway"
-       com.amazonaws.services.athena.AmazonAthenaClient         "athena"     "athena"
-       com.amazonaws.services.config.AmazonConfigClient         "config"     "config"
-       com.amazonaws.services.ec2.AmazonEC2Client               "ec2"        "ec2"
-       com.amazonaws.services.ecs.AmazonECSClient               "ecs"        "ecs"
-       com.amazonaws.services.glacier.AmazonGlacierClient       "glacier"    "glacier"
-       com.amazonaws.services.kafka.AWSKafkaClient              "kafka"      "kafka"
-       com.amazonaws.services.kinesis.AmazonKinesisClient       "kinesis"    "kinesis"
-       com.amazonaws.services.s3.AmazonS3Client                 "s3"         "s3"
-       com.amazonaws.services.sns.AmazonSNSClient               "sns"        "sns"
-       com.amazonaws.services.sqs.AmazonSQSClient               "sqs"        "sqs"
-       com.amazonaws.services.transfer.AWSTransferClient        "transfer"   "transfer"
-       ))
-
-
-(deftest test-javassist-client-proxy
-  (are [client-class endpoint-prefix service-name]
-       (let [proxy (#'sandbox/javassist-client-proxy client-class
-                     (sandbox/javassist-invocation-handler [_ _]
+       (let [proxy (#'sandbox/client-proxy client-class
+                     (sandbox/invocation-handler [_ _]
                        (throw (RuntimeException. "BOOM!"))))]
          (and (is (instance? client-class proxy))
               (is (= endpoint-prefix (.getEndpointPrefix proxy)))
