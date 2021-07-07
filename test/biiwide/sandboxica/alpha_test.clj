@@ -16,17 +16,16 @@
             [com.amazonaws.services.sqs.model
              DeleteMessageResult SendMessageRequest SendMessageResult]
             [java.lang.reflect Method Modifier]
-            [net.sf.cglib.proxy Callback CallbackFilter
-             Enhancer InvocationHandler]))
+            [javassist.util.proxy MethodHandler]))
 
 
 (deftest test-invocation-handler
   (is (instance?
-        InvocationHandler
+        MethodHandler
         (sandbox/invocation-handler [_ _] nil)))
   (let [o (Object.)]
     (is (identical? o (.invoke (sandbox/invocation-handler [_ _] o)
-                               nil nil nil)))))
+                               nil nil nil nil)))))
 
 
 (deftest test-sync-client-params
@@ -230,5 +229,6 @@
   (sandbox/with (sandbox/just
                  (s3/put-object [req]
                    (is (match? (assoc put-req :input-stream content)
-                               (update req :input-stream slurp)))))
+                               (update req :input-stream slurp)))
+                   {}))
     (s3/put-object {:profile "none"} put-req))))

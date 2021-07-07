@@ -7,8 +7,8 @@
             [com.amazonaws.client AwsSyncClientParams]
             [java.lang.reflect Method Modifier]
             [java.util.concurrent CopyOnWriteArrayList]
-            [net.sf.cglib.proxy Callback CallbackFilter
-             Enhancer InvocationHandler NoOp]))
+            [javassist.util.proxy MethodFilter MethodHandler
+             ProxyObject ProxyFactory]))
 
 
 (defmacro invocation-handler
@@ -26,9 +26,11 @@ Example:
             (vary-meta sym assoc :tag type))
           (array-hint [clazz]
             (symbol (.getName (class (into-array clazz [])))))]
-    `(reify net.sf.cglib.proxy.InvocationHandler
-       (invoke [~'_ ~'_ ~(tag method-sym 'java.lang.reflect.Method)
-                        ~(tag args-sym (array-hint Object))]
+    `(reify javassist.util.proxy.MethodHandler
+       (invoke [~'_ ~'_
+                ~(tag method-sym 'java.lang.reflect.Method)
+                ~(tag '_ 'java.lang.reflect.Method)
+                ~(tag args-sym (array-hint Object))]
          ~@body))))
 
 
@@ -60,7 +62,7 @@ Example:
 
 
 (defn- find-constructor
-  [clazz arg-types]
+  [^Class clazz arg-types]
   (or (try
         (.getConstructor clazz (into-array Class arg-types))
         (catch NoSuchMethodException e nil))
@@ -103,34 +105,34 @@ Example:
 
 
 (defn- client-proxy
-  [client-class ^Callback method-invocation-handler]
+  [client-class method-invocation-handler]
   (let [typed-args (typed-client-constructor-args
                      client-class
                      {:access-key ""
                       :secret-key ""
                       :endpoint   "http://localhost:1/"}
-                     {})]
-    (.create (doto (Enhancer.)
-               (.setSuperclass client-class)
-               (.setCallbacks (into-array Callback
-                                          [NoOp/INSTANCE
-                                           method-invocation-handler]))
-               (.setCallbackFilter (reify CallbackFilter
-                                     (accept [_ method]
-                                       (cond (not (public? method))                          0
-                                             (not= client-class (.getDeclaringClass method)) 0
-                                             (ignored-client-methods (.getName method))      0
-                                             :else 1)))))
-      (into-array Class (map first typed-args))
-      (into-array Object (map second typed-args)))))
+                     {})
+        proxy-factory (doto (ProxyFactory.)
+                        (.setSuperclass client-class)
+                        (.setFilter (reify MethodFilter
+                                      (isHandled [_ method]
+                                        (cond (not (public? method))                          false
+                                              (not= client-class (.getDeclaringClass method)) false
+                                              (ignored-client-methods (.getName method))      false
+                                              :else true)))))
+        proxy-client (.create proxy-factory
+                       (into-array Class (map first typed-args))
+                       (into-array Object (map second typed-args)))]
+    (doto ^ProxyObject proxy-client
+      (.setHandler method-invocation-handler))))
 
 
 (defn- client-proxy?
   [x]
   (if (class? x)
-    (some? (some #{net.sf.cglib.proxy.Factory}
+    (some? (some #{javassist.util.proxy.ProxyObject}
                  (ancestors x)))
-    (instance? net.sf.cglib.proxy.Factory x)))
+    (instance? javassist.util.proxy.ProxyObject x)))
 
 
 (defn- original-class
