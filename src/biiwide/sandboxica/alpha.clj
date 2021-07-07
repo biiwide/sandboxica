@@ -7,17 +7,18 @@
             [com.amazonaws.client AwsSyncClientParams]
             [java.lang.reflect Method Modifier]
             [java.util.concurrent CopyOnWriteArrayList]
+            [javassist.util.proxy MethodHandler ProxyFactory]
             [net.sf.cglib.proxy Callback CallbackFilter
              Enhancer InvocationHandler NoOp]))
 
 
-(defmacro invocation-handler
+(defmacro cglib-invocation-handler
   "A macro that constructs an invocation handler for use by client proxies.
 Invocations handlers are functions of 2 arguments: a method, and an arguments array.
 
 Example:
 (let [client (create-client class)]
-  (invocation-handler [^Method method args]
+  (cglib-invocation-handler [^Method method args]
     (println (.getName method) \\: (seq args))
     (.invoke method client args)))
 "
@@ -102,8 +103,8 @@ Example:
     "setEndpoint"})
 
 
-(defn- client-proxy
-  [client-class ^Callback method-invocation-handler]
+(defn- cglib-client-proxy
+  [client-class ^Callback cglib-method-invocation-handler]
   (let [typed-args (typed-client-constructor-args
                      client-class
                      {:access-key ""
@@ -114,7 +115,7 @@ Example:
                (.setSuperclass client-class)
                (.setCallbacks (into-array Callback
                                           [NoOp/INSTANCE
-                                           method-invocation-handler]))
+                                           cglib-method-invocation-handler]))
                (.setCallbackFilter (reify CallbackFilter
                                      (accept [_ method]
                                        (cond (not (public? method))                          0
@@ -317,8 +318,8 @@ Example:
         (let [client (apply client-fn client-fn-args)
               clazz  (original-class client)]
           (if-some [methods (get impls clazz)]
-            (client-proxy clazz
-              (invocation-handler [method args]
+            (cglib-client-proxy clazz
+              (cglib-invocation-handler [method args]
                 (if-some [m (get methods (.getName method))]
                   (apply m (seq args))
                   (.invoke method client args))))
@@ -383,8 +384,8 @@ Typically the \"nothing\" value is nil, but will also return:
   [client-fn]
   (fn [& client-fn-args]
     (let [c (apply client-fn client-fn-args)]
-      (client-proxy (original-class c)
-        (invocation-handler [method args]
+      (cglib-client-proxy (original-class c)
+        (cglib-invocation-handler [method args]
           (nothing-value (.getReturnType ^Method method)))))))
 
 
@@ -411,8 +412,8 @@ an UnsupportedOperationException for every client action."
   [client-fn]
   (fn [& client-fn-args]
     (let [c (apply client-fn client-fn-args)]
-      (client-proxy (original-class c)
-        (invocation-handler [method args]
+      (cglib-client-proxy (original-class c)
+        (cglib-invocation-handler [method args]
           (throw (UnsupportedOperationException.
                    (format "Method %s is not supported in this context."
                            (method-description method)))))))))

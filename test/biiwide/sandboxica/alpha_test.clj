@@ -20,12 +20,12 @@
              Enhancer InvocationHandler]))
 
 
-(deftest test-invocation-handler
+(deftest test-cglib-invocation-handler
   (is (instance?
         InvocationHandler
-        (sandbox/invocation-handler [_ _] nil)))
+        (sandbox/cglib-invocation-handler [_ _] nil)))
   (let [o (Object.)]
-    (is (identical? o (.invoke (sandbox/invocation-handler [_ _] o)
+    (is (identical? o (.invoke (sandbox/cglib-invocation-handler [_ _] o)
                                nil nil nil)))))
 
 
@@ -50,10 +50,10 @@
          (is (= "def" (.getAWSSecretKey creds))))))
 
 
-(deftest test-client-proxy
+(deftest test-cglib-client-proxy
   (are [client-class endpoint-prefix service-name]
-       (let [proxy (#'sandbox/client-proxy client-class
-                     (sandbox/invocation-handler [_ _]
+       (let [proxy (#'sandbox/cglib-client-proxy client-class
+                     (sandbox/cglib-invocation-handler [_ _]
                        (throw (RuntimeException. "BOOM!"))))]
          (and (is (instance? client-class proxy))
               (is (= endpoint-prefix (.getEndpointPrefix proxy)))
@@ -230,5 +230,6 @@
   (sandbox/with (sandbox/just
                  (s3/put-object [req]
                    (is (match? (assoc put-req :input-stream content)
-                               (update req :input-stream slurp)))))
+                               (update req :input-stream slurp)))
+                   {}))
     (s3/put-object {:profile "none"} put-req))))
