@@ -1,4 +1,4 @@
-(defproject biiwide/sandboxica "0.3.1-SNAPSHOT"
+(defproject biiwide/sandboxica "0.4.0-SNAPSHOT"
 
   :description "Avoid the Jungle"
 
@@ -26,7 +26,7 @@
 
   :eftest {:multithread? :vars}
 
-  :profiles {:dev {:dependencies [[com.amazonaws/aws-java-sdk-s3 "1.11.993"]
+  :profiles {:dev {:dependencies [[com.amazonaws/aws-java-sdk-s3 "1.12.17"]
                                   [eftest "0.5.9"]
                                   [nubank/matcher-combinators "3.2.1"]]}}
 
