@@ -1,14 +1,17 @@
 (ns biiwide.sandboxica.alpha
   (:refer-clojure :exclude [methods])
   (:require [amazonica.core :as aws]
+            [clojure.java.io :as io]
+            [clojure.reflect :refer [resolve-class]]
             [clojure.string :as string])
-  (:import  [com.amazonaws ClientConfiguration]
-            [com.amazonaws.auth AWSCredentialsProvider]
-            [com.amazonaws.client AwsSyncClientParams]
-            [java.lang.reflect Method Modifier]
-            [java.util.concurrent CopyOnWriteArrayList]
-            [javassist.util.proxy MethodFilter MethodHandler
-             ProxyObject ProxyFactory]))
+  (:import  (com.amazonaws ClientConfiguration)
+            (com.amazonaws.auth AWSCredentialsProvider)
+            (com.amazonaws.client AwsSyncClientParams)
+            (java.io InputStream)
+            (java.lang.reflect Method Modifier)
+            (java.util.concurrent CopyOnWriteArrayList)
+            (javassist.util.proxy MethodFilter MethodHandler
+             ProxyObject ProxyFactory)))
 
 
 (defmacro invocation-handler
@@ -152,11 +155,13 @@ Example:
         (require ns-sym))))
 
 
+(def ^:private aws-unmarshall @#'aws/unmarshall)
+
 (defn- unmarshall
   [^Class clazz result]
   (if (instance? clazz result)
     result
-    (first (#'aws/unmarshall
+    (first (aws-unmarshall
              {:actual  [clazz]
               :generic [clazz]}
              [result]))))
@@ -229,13 +234,17 @@ and unmarshall Clojure values to a result type based on the given method signatu
           (unmarshall rt (apply f (mapv marshall++
                                         (list* a b more))))))))
 
+(defn- method-key
+  [^Method m]
+  [(.getGenericReturnType m) (.getName m)])
+
 (defn method-coercions
   "Given a function and a collection of methods,
 returns a map of composed functions that will coerce arguments and
 results to match the method signatures.
 See also: coerce-method-implementation"
   [f methods]
-  (zipmap (map #(.getName ^Method %) methods)
+  (zipmap (map method-key methods)
           (map (partial coerce-method-implementation f) methods)))
 
 
@@ -321,7 +330,7 @@ Example:
           (if-some [methods (get impls clazz)]
             (client-proxy clazz
               (invocation-handler [method args]
-                (if-some [m (get methods (.getName method))]
+                (if-some [m (get methods (method-key method))]
                   (apply m (seq args))
                   (.invoke method client args))))
             client))))))
@@ -438,3 +447,102 @@ Example:
         :encryption-client-fn mw#
         :transfer-manager-fn  mw#}
        (fn [] ~@body))))
+
+
+(defmacro ^:private when-class-exists
+  [class-name form]
+  (let [cl (.getContextClassLoader (Thread/currentThread))]
+    (when (resolve-class cl class-name)
+      `(do (import ~class-name)
+           ~form))))
+
+(when-class-exists
+  com.amazonaws.services.s3.model.ObjectMetadata
+  (aws/register-coercions
+    ObjectMetadata
+    (fn [m]
+      (let [om (ObjectMetadata.)]
+        (when-some [cc (:cache-control m)]
+          (.setCacheControl om cc))
+        (when-some [cd (:content-disposition m)]
+          (.setContentDisposition om cd))
+        (when-some [ce (:content-encoding m)]
+          (.setContentEncoding om ce))
+        (when-some [cl (:content-length m)]
+          (.setContentLength om cl))
+        (when-some [cm (:content-md5 m)]
+          (.setContentMD5 om cm))
+        (when-some [ct (:content-type m)]
+          (.setContentType om ct))
+        (when-some [et (:expiration-time m)]
+          (.setExpirationTime om (aws/to-date et)))
+        (when-some [id (:expiration-time-rule-id m)]
+          (.setExpirationTimeRuleId om id))
+        (when-some [he (:http-expires-date m)]
+          (.setHttpExpiresDate om he))
+        (when-some [lm (:last-modified m)]
+          (.setLastModified om (aws/to-date lm)))
+        (when-some [rt (:restore-expiration-time m)]
+          (.setRestoreExpirationTime om (aws/to-date rt)))
+        (when-some [sse (:server-side-encryption m)]
+          (.setServerSideEncryption om sse))
+        (when-some [sse-kms-key-id (:server-side-encryption-aws-kms-key-id m)]
+          (.setHeader om "x-amz-server-side-encryption" "aws:kms")
+          (.setHeader om "x-amz-server-side-encryption-aws-kms-key-id" sse-kms-key-id))
+        (when-some [metadata (:user-metadata m)]
+          (doseq [[k v] metadata]
+            (.addUserMetadata om
+                              (aws/kw->str k)
+                              (str v))))
+        om))))
+
+(when-class-exists
+  com.amazonaws.services.s3.model.S3Object
+  (aws/register-coercions
+    S3Object
+    (fn [m]
+      (let [s3o (doto (S3Object.)
+                  (.setBucketName (:bucket-name m))
+                  (.setKey (:key m))
+                  (.setObjectMetadata (aws/coerce-value (:object-metadata m)
+                                                        ObjectMetadata))
+                  (.setRedirectLocation (:redirect-location m))
+                  (.setRequesterCharged (boolean (:requester-charged? m)))
+                  (.setTaggingCount (:tagging-count m)))]
+        (when-some [oc (:object-content m)]
+          (.setObjectContent s3o ^InputStream (io/input-stream oc)))
+        s3o))))
+
+(when-class-exists
+  com.amazonaws.services.s3.model.S3ObjectSummary
+  (aws/register-coercions
+    S3ObjectSummary
+    (fn [m]
+      (doto (S3ObjectSummary.)
+        (.setBucketName (:bucket-name m))
+        (.setKey (:key m))
+        (.setETag (:etag m))
+        (.setLastModified (some-> (:last-modified m)
+                                  (aws/to-date)))
+        (.setOwner (:owner m))
+        (.setSize (:size m -1))
+        (.setStorageClass (:storage-class m))))))
+
+(when-class-exists
+  com.amazonaws.services.s3.model.ListObjectsV2Result
+  (aws/register-coercions
+    ListObjectsV2Result
+    (fn [m]
+      (let [result (ListObjectsV2Result.)
+            summaries (.getObjectSummaries result)]
+        (doseq [os (:object-summaries m)]
+          (.add summaries (aws/coerce-value os S3ObjectSummary)))
+        (doto result
+          (.setBucketName (:bucket-name m))
+          (.setCommonPrefixes (vec (:common-prefixes m)))
+          (.setContinuationToken (:continuation-token m))
+          (.setDelimiter (:delimiter m))
+          (.setEncodingType (:encoding-type m))
+          (.setKeyCount (:key-count m -1))
+          (.setMaxKeys (:max-keys m 0))
+          (.setNextContinuationToken (:next-continuation-token m)))))))

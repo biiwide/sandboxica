@@ -6,17 +6,19 @@
             [biiwide.sandboxica.alpha :as sandbox]
             [clojure.java.io :as io]
             [clojure.test :refer [are deftest is]]
-            [matcher-combinators.test])
-  (:import  [com.amazonaws.client AwsSyncClientParams]
-            [com.amazonaws.services.ec2 AmazonEC2Client]
-            [com.amazonaws.services.ec2.model
-             DescribeInstancesRequest DescribeInstancesResult]
-            [com.amazonaws.services.s3.transfer Upload]
-            [com.amazonaws.services.sqs AmazonSQSClient]
-            [com.amazonaws.services.sqs.model
-             DeleteMessageResult SendMessageRequest SendMessageResult]
-            [java.lang.reflect Method Modifier]
-            [javassist.util.proxy MethodHandler]))
+            matcher-combinators.test)
+  (:import  (com.amazonaws.client AwsSyncClientParams)
+            (com.amazonaws.services.ec2 AmazonEC2Client)
+            (com.amazonaws.services.ec2.model
+             DescribeInstancesRequest DescribeInstancesResult)
+            (com.amazonaws.services.s3.model
+             ListObjectsV2Result S3ObjectSummary)
+            (com.amazonaws.services.s3.transfer Upload)
+            (com.amazonaws.services.sqs AmazonSQSClient)
+            (com.amazonaws.services.sqs.model
+             DeleteMessageResult SendMessageRequest SendMessageResult)
+            (java.lang.reflect Method Modifier)
+            (javassist.util.proxy MethodHandler)))
 
 
 (deftest test-invocation-handler
@@ -232,3 +234,9 @@
                                (update req :input-stream slurp)))
                    {}))
     (s3/put-object {:profile "none"} put-req))))
+
+(deftest test-unmarshal-s3-list-objects-v2-result
+  (is (match? {:object-summaries [{:key "foo"}]}
+              (sandbox/marshall++
+                (#'sandbox/unmarshall ListObjectsV2Result
+                                      {:object-summaries [{:key "foo"}]})))))
