@@ -6,7 +6,7 @@ Don't play in the jungle.
 
 Leiningen coordinates:
 ```
-[biiwide/sandboxica "0.4.0"]
+[biiwide/sandboxica "0.4.1"]
 ```
 
 Require some namespaces:
